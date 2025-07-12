@@ -1,0 +1,8 @@
+[package]
+name = "wasm_loader"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+wasmtime = "34.0.1"
+winapi = { version = "0.3", features = ["memoryapi", "processthreadsapi", "synchapi", "winnt"] }
