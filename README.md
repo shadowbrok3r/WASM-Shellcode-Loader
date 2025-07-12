@@ -5,7 +5,7 @@
 cargo install wasm-pack
 ```
 
-## Install Wasm2Wat Windows
+## Install `Wasm2Wat` Windows
 ```sh
 curl -L -o wabt.tar.gz https://github.com/WebAssembly/wabt/releases/latest/download/wabt-1.0.37-windows.tar.gz
 ```
