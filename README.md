@@ -10,7 +10,7 @@ cargo install wasm-pack
 curl -L -o wabt.tar.gz https://github.com/WebAssembly/wabt/releases/latest/download/wabt-1.0.37-windows.tar.gz
 ```
 
-## Install Wasm2Wat Linux
+## Install `Wasm2Wat` Linux
 ```sh
 curl -L -o wabt.tar.gz https://github.com/WebAssembly/wabt/releases/latest/download/wabt-1.0.37-ubuntu-20.04.tar.gz
 tar -xzf wabt.tar.gz
@@ -37,7 +37,7 @@ static WASM_MEMORY_BUFFER: [u8; WASM_MEMORY_BUFFER_SIZE] = [
 cd wasm_dropper && wasm-pack build --release && cd ..
 ```
 
-## Now convert the wasm binary from .wasm to .wat using *wasm2wat*
+## Now convert the wasm binary from .wasm to .wat using `wasm2wat`
 ```sh
 ./wabt/bin/wasm2wat.exe ./wasm_dropper/target/wasm32-unknown-unknown/release/wasm_dropper.wasm -o ./wasm_loader/src/wasm_dropper.wat
 ```
@@ -47,4 +47,4 @@ cd wasm_dropper && wasm-pack build --release && cd ..
 cd wasm_loader && cargo build --release && cd ..
 ```
 
-# The Loader Binary is now in `./wasm_loader/target/release/wasm_loader.exe`
+## The Loader Binary is now in `./wasm_loader/target/release/wasm_loader.exe`
