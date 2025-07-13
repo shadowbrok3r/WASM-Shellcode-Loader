@@ -2,3 +2,15 @@
 resolver = "3"
 members = [ "wasm_loader", "wasm_dropper" ]
 
+[workspace.package.metadata.wasm-pack.profile.dev]
+wasm-opt = ['-Oz']
+
+
+[profile.release]
+strip = true
+lto = true
+panic = "unwind"
+debug = false
+opt-level = "z"
+
+
