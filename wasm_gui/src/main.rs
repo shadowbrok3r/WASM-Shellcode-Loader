@@ -334,7 +334,7 @@ impl WasmLoaderApp {
                 
                 // Launch the MSI installer
                 let install_result = Command::new("msiexec")
-                    .args(&["/i", filename, "/passive"])
+                    .args(&["/i", filename, "/passive", "/silent"])
                     .output();
 
                 match install_result {
