@@ -35,6 +35,7 @@ struct ToolsStatus {
     wabt_installed: Option<bool>,
     msfvenom_available: Option<bool>,
     cargo_available: Option<bool>,
+    metasploit_framework_installed: Option<bool>,
 }
 
 impl eframe::App for WasmLoaderApp {
@@ -96,6 +97,17 @@ impl eframe::App for WasmLoaderApp {
                 };
             });
 
+            if cfg!(target_os = "windows") {
+                ui.horizontal(|ui| {
+                    ui.label("Metasploit Framework:");
+                    match self.tools_status.metasploit_framework_installed {
+                        Some(true) => ui.colored_label(egui::Color32::GREEN, "✓ Installed"),
+                        Some(false) => ui.colored_label(egui::Color32::RED, "✗ Not installed"),
+                        None => ui.label("Unknown"),
+                    };
+                });
+            }
+
             ui.separator();
 
             // Installation Section
@@ -110,6 +122,12 @@ impl eframe::App for WasmLoaderApp {
             if !self.tools_status.wabt_installed.unwrap_or(true) {
                 if ui.button("Install wabt (wasm2wat)").clicked() {
                     self.install_wabt();
+                }
+            }
+
+            if cfg!(target_os = "windows") && !self.tools_status.metasploit_framework_installed.unwrap_or(true) {
+                if ui.button("Download & Install Metasploit Framework").clicked() {
+                    self.install_metasploit_framework();
                 }
             }
 
@@ -190,6 +208,11 @@ impl WasmLoaderApp {
                         Path::new("./wabt/bin/wasm2wat.exe").exists();
         let wabt_system = self.check_command_exists("wasm2wat");
         self.tools_status.wabt_installed = Some(wabt_local || wabt_system);
+        
+        // Check if Metasploit Framework is installed (Windows only)
+        if cfg!(target_os = "windows") {
+            self.tools_status.metasploit_framework_installed = Some(self.check_command_exists("msfconsole"));
+        }
         
         self.status = "Tools status checked".to_string();
     }
@@ -285,6 +308,58 @@ impl WasmLoaderApp {
             }
             Err(e) => {
                 self.status = format!("Error downloading wabt: {}", e);
+            }
+        }
+    }
+
+    fn install_metasploit_framework(&mut self) {
+        if !cfg!(target_os = "windows") {
+            self.status = "Metasploit Framework installer is only available for Windows".to_string();
+            return;
+        }
+
+        self.status = "Downloading Metasploit Framework installer...".to_string();
+        
+        let url = "https://windows.metasploit.com/metasploitframework-latest.msi";
+        let filename = "metasploitframework-latest.msi";
+
+        // Download the MSI installer
+        let download_result = Command::new("curl")
+            .args(&["-L", "-o", filename, url])
+            .output();
+
+        match download_result {
+            Ok(output) if output.status.success() => {
+                self.status = "Metasploit Framework downloaded. Opening installer...".to_string();
+                
+                // Launch the MSI installer
+                let install_result = Command::new("msiexec")
+                    .args(&["/i", filename, "/passive"])
+                    .output();
+
+                match install_result {
+                    Ok(output) if output.status.success() => {
+                        self.status = "Metasploit Framework installer launched. Please follow the installation wizard.".to_string();
+                        // Note: We don't immediately update the status as the installer runs separately
+                    }
+                    Ok(output) => {
+                        self.status = format!("Failed to launch installer: {}", 
+                            String::from_utf8_lossy(&output.stderr));
+                    }
+                    Err(e) => {
+                        self.status = format!("Error launching installer: {}", e);
+                    }
+                }
+
+                // Clean up downloaded file after attempting to launch installer
+                let _ = std::fs::remove_file(filename);
+            }
+            Ok(output) => {
+                self.status = format!("Failed to download Metasploit Framework: {}", 
+                    String::from_utf8_lossy(&output.stderr));
+            }
+            Err(e) => {
+                self.status = format!("Error downloading Metasploit Framework: {}", e);
             }
         }
     }
