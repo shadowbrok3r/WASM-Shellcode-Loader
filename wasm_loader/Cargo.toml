@@ -5,4 +5,4 @@ edition = "2024"
 
 [dependencies]
 wasmtime = "34.0.1"
-winapi = { version = "0.3", features = ["memoryapi", "processthreadsapi", "synchapi", "winnt"] }
+winapi = { version = "0.3", features = ["memoryapi", "processthreadsapi", "synchapi", "winnt", "winbase", "handleapi"] }
