@@ -4,3 +4,4 @@ wasm_dropper/target/
 wasm_dropper/pkg/
 wasm_loader/src/wasm_dropper.wat
 wabt/
+wabt.tar.gz
