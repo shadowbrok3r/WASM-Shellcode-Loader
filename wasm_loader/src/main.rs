@@ -1,13 +1,34 @@
+#[cfg(windows)]
 use winapi::um::winnt::{MEM_COMMIT, MEM_RESERVE, PAGE_EXECUTE_READWRITE};
+#[cfg(windows)]
 use winapi::um::processthreadsapi::CreateThread;
+#[cfg(windows)]
 use winapi::um::synchapi::WaitForSingleObject;
+#[cfg(windows)]
 use winapi::um::memoryapi::{VirtualAlloc};
 use std::error::Error;
 use wasmtime::*;
+#[cfg(windows)]
 use std::ptr;
 
 fn main() -> Result<(), Box<dyn Error>> {
-let engine = Engine::default();
+    #[cfg(windows)]
+    {
+        execute_shellcode()?;
+    }
+    
+    #[cfg(not(windows))]
+    {
+        eprintln!("This program is designed to run on Windows only.");
+        eprintln!("The shellcode execution functionality requires Windows APIs.");
+    }
+
+    Ok(())
+}
+
+#[cfg(windows)]
+fn execute_shellcode() -> Result<(), Box<dyn Error>> {
+    let engine = Engine::default();
     let mut store = Store::new(&engine, ());
 
     // Embed the .wat file content to avoid path length issues

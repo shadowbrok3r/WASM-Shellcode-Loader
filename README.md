@@ -1,5 +1,25 @@
 # Metasploit WASM Executor
 
+This project provides a WASM-based shellcode loader with an optional GUI for automation.
+
+## 🚀 Quick Start with GUI (Recommended)
+
+For the easiest experience, use the included GUI that automates all manual steps:
+
+```bash
+cargo run -p wasm_gui
+```
+
+The GUI will guide you through:
+- Tool installation and verification
+- Payload configuration (IP/Port)
+- Complete build pipeline automation
+- Error handling and status updates
+
+See [wasm_gui/README.md](wasm_gui/README.md) for detailed GUI documentation.
+
+## 📋 Manual Setup (Advanced Users)
+
 ## Dependencies
 ```sh
 cargo install wasm-pack
