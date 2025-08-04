@@ -53,6 +53,12 @@ struct ToolsStatus {
     metasploit_framework_installed: bool,
 }
 
+// impl Default for WasmLoaderApp {
+//     fn default() -> Self {
+//         Self { ip_address: Ip, port: Default::default(), generated_command: Default::default(), status: Default::default(), tools_status: Default::default(), first_run: Default::default() }
+//     }
+// }
+
 impl eframe::App for WasmLoaderApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if !self.first_run {
@@ -402,7 +408,7 @@ impl WasmLoaderApp {
                 
                 // Launch the MSI installer
                 let install_result = Command::new("msiexec")
-                    .args(&["/i", filename, "/passive", "/silent"])
+                    .args(&["/i", filename, "/passive", "/quiet"])
                     .output();
 
                 match install_result {
