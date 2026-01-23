@@ -7,8 +7,8 @@ edition = "2024"
 # crate-type = ["cdylib"]
 
 [dependencies]
-wasmtime = "35.0.0"
-windows = {version = "0.61.3", features = [
+wasmtime = "41.0.0"
+windows = {version = "0.62.2", features = [
     "Win32_System_Threading",
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_Diagnostics_Debug", 
